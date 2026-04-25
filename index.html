@@ -236,7 +236,7 @@
   <div class="settings-row">
     <div class="setting">
       <label>字體大小</label>
-      <input type="range" id="font-size-slider" min="20" max="80" value="36" step="2" />
+      <input type="range" id="font-size-slider" min="20" max="200" value="36" step="2" />
       <span class="val" id="font-size-val">36px</span>
     </div>
 
@@ -277,7 +277,8 @@
 
   <div id="kbd-hint">
     Space 播放/暫停<br>
-    ↑ ↓ 調速<br>
+    ← → 調速<br>
+    ↑ ↓ 微調位置<br>
     R 回到開頭<br>
     M 鏡像<br>
     F 全螢幕<br>
@@ -412,6 +413,14 @@
     applyScroll();
   }
 
+  function nudgeScroll(dir) {
+    const lineHeight = state.fontSize * 1.75;
+    state.scrollY = Math.max(0, state.scrollY + dir * lineHeight);
+    state.lastTimestamp = null;
+    applyScroll();
+    flashHud();
+  }
+
   function adjustSpeed(delta) {
     state.speed = Math.max(10, Math.min(300, state.speed + delta));
     speedSlider.value = state.speed;
@@ -510,13 +519,21 @@
         e.preventDefault();
         togglePlay();
         break;
-      case 'ArrowUp':
+      case 'ArrowRight':
         e.preventDefault();
         adjustSpeed(10);
         break;
-      case 'ArrowDown':
+      case 'ArrowLeft':
         e.preventDefault();
         adjustSpeed(-10);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        nudgeScroll(-1);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        nudgeScroll(1);
         break;
       case 'r':
       case 'R':
