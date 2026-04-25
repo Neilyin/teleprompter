@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>提詞機</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #000;
+      --fg: #fff;
+      --accent: #f0a500;
+      --panel-bg: #111;
+      --border: #333;
+      --radius: 12px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+      height: 100dvh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ── EDIT MODE ── */
+    #edit-screen {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      padding: 24px;
+      gap: 20px;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--accent);
+    }
+
+    #textarea {
+      flex: 1;
+      background: #0d0d0d;
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-size: 18px;
+      line-height: 1.7;
+      resize: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    #textarea::placeholder { color: #444; }
+
+    .settings-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .setting {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+    }
+
+    .setting label {
+      font-size: 14px;
+      color: #aaa;
+      white-space: nowrap;
+    }
+
+    .setting input[type="range"] {
+      width: 120px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .setting .val {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+      min-width: 32px;
+      text-align: right;
+    }
+
+    .toggle-btn {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: #aaa;
+      font-size: 14px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .toggle-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    #start-btn {
+      background: var(--accent);
+      color: #000;
+      font-size: 18px;
+      font-weight: 700;
+      border: none;
+      border-radius: var(--radius);
+      padding: 14px 36px;
+      cursor: pointer;
+      align-self: flex-end;
+      transition: opacity 0.15s;
+    }
+
+    #start-btn:active { opacity: 0.8; }
+
+    /* ── PLAY MODE ── */
+    #play-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      overflow: hidden;
+      flex-direction: column;
+    }
+
+    #play-screen.active { display: flex; }
+
+    #scroll-container {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #scroll-content {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 60px 64px 80vh 64px;
+      white-space: pre-wrap;
+      line-height: 1.75;
+      text-align: left;
+      will-change: transform;
+    }
+
+    #scroll-content.mirrored {
+      transform: scaleX(-1);
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.92));
+      padding: 16px 32px 20px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      transition: opacity 0.4s;
+      z-index: 10;
+    }
+
+    #hud.hidden { opacity: 0; pointer-events: none; }
+
+    .hud-btn {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      color: var(--fg);
+      font-size: 22px;
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .hud-btn:active { background: rgba(255,255,255,0.25); }
+
+    .hud-btn.accent { color: var(--accent); border-color: var(--accent); }
+
+    #speed-display {
+      font-size: 13px;
+      color: #aaa;
+      white-space: nowrap;
+    }
+
+    .hud-spacer { flex: 1; }
+
+    /* keyboard hint */
+    #kbd-hint {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      font-size: 12px;
+      color: #333;
+      line-height: 1.8;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+
+    #kbd-hint.hidden { opacity: 0; }
+
+    /* tap zone */
+    #tap-zone {
+      position: fixed;
+      inset: 0;
+      bottom: 80px;
+      z-index: 5;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── EDIT SCREEN ── -->
+<div id="edit-screen">
+  <h1>提詞機</h1>
+
+  <textarea id="textarea" placeholder="在此貼上稿件…"></textarea>
+
+  <div class="settings-row">
+    <div class="setting">
+      <label>字體大小</label>
+      <input type="range" id="font-size-slider" min="20" max="80" value="36" step="2" />
+      <span class="val" id="font-size-val">36px</span>
+    </div>
+
+    <div class="setting">
+      <label>滾動速度</label>
+      <input type="range" id="speed-slider" min="10" max="300" value="80" step="5" />
+      <span class="val" id="speed-val">80</span>
+    </div>
+
+    <button class="toggle-btn" id="mirror-btn">↔ 鏡像</button>
+  </div>
+
+  <div class="settings-row">
+    <button id="start-btn">▶ 開始</button>
+  </div>
+</div>
+
+<!-- ── PLAY SCREEN ── -->
+<div id="play-screen">
+  <div id="scroll-container">
+    <div id="scroll-content"></div>
+  </div>
+
+  <!-- transparent tap area -->
+  <div id="tap-zone"></div>
+
+  <div id="hud">
+    <button class="hud-btn" id="back-btn" title="返回編輯 (Esc)">✕</button>
+    <button class="hud-btn" id="reset-btn" title="回到開頭 (R)">⏮</button>
+    <button class="hud-btn" id="play-pause-btn" title="播放/暫停 (Space)">▶</button>
+    <button class="hud-btn" id="slower-btn" title="減速 (↓)">－</button>
+    <span id="speed-display">速度 80</span>
+    <button class="hud-btn" id="faster-btn" title="加速 (↑)">＋</button>
+    <div class="hud-spacer"></div>
+    <button class="hud-btn" id="mirror-play-btn" title="鏡像翻轉 (M)">↔</button>
+    <button class="hud-btn" id="fullscreen-btn" title="全螢幕 (F)">⛶</button>
+  </div>
+
+  <div id="kbd-hint">
+    Space 播放/暫停<br>
+    ↑ ↓ 調速<br>
+    R 回到開頭<br>
+    M 鏡像<br>
+    F 全螢幕<br>
+    Esc 返回
+  </div>
+</div>
+
+<script>
+  // ── State ──
+  const state = {
+    fontSize: 36,
+    speed: 80,
+    mirrored: false,
+    playing: false,
+    scrollY: 0,
+    lastTimestamp: null,
+    animId: null,
+    hudTimeout: null,
+  };
+
+  // ── Elements ──
+  const editScreen   = document.getElementById('edit-screen');
+  const playScreen   = document.getElementById('play-screen');
+  const textarea     = document.getElementById('textarea');
+  const fontSlider   = document.getElementById('font-size-slider');
+  const fontVal      = document.getElementById('font-size-val');
+  const speedSlider  = document.getElementById('speed-slider');
+  const speedVal     = document.getElementById('speed-val');
+  const mirrorBtn    = document.getElementById('mirror-btn');
+  const startBtn     = document.getElementById('start-btn');
+
+  const scrollContent  = document.getElementById('scroll-content');
+  const playPauseBtn   = document.getElementById('play-pause-btn');
+  const backBtn        = document.getElementById('back-btn');
+  const resetBtn       = document.getElementById('reset-btn');
+  const slowerBtn      = document.getElementById('slower-btn');
+  const fasterBtn      = document.getElementById('faster-btn');
+  const speedDisplay   = document.getElementById('speed-display');
+  const mirrorPlayBtn  = document.getElementById('mirror-play-btn');
+  const fullscreenBtn  = document.getElementById('fullscreen-btn');
+  const hud            = document.getElementById('hud');
+  const kbdHint        = document.getElementById('kbd-hint');
+  const tapZone        = document.getElementById('tap-zone');
+
+  // ── Edit controls ──
+  fontSlider.addEventListener('input', () => {
+    state.fontSize = +fontSlider.value;
+    fontVal.textContent = state.fontSize + 'px';
+  });
+
+  speedSlider.addEventListener('input', () => {
+    state.speed = +speedSlider.value;
+    speedVal.textContent = state.speed;
+  });
+
+  mirrorBtn.addEventListener('click', () => {
+    state.mirrored = !state.mirrored;
+    mirrorBtn.classList.toggle('active', state.mirrored);
+  });
+
+  startBtn.addEventListener('click', enterPlay);
+
+  // ── Enter play mode ──
+  function enterPlay() {
+    const text = textarea.value.trim();
+    if (!text) return;
+
+    scrollContent.textContent = text;
+    scrollContent.style.fontSize = state.fontSize + 'px';
+    scrollContent.classList.toggle('mirrored', state.mirrored);
+
+    state.scrollY = 0;
+    state.playing = false;
+    state.lastTimestamp = null;
+    applyScroll();
+    updatePlayPauseBtn();
+    updateSpeedDisplay();
+    updateMirrorBtn();
+
+    editScreen.style.display = 'none';
+    playScreen.classList.add('active');
+
+    showHud();
+  }
+
+  // ── Scroll animation ──
+  function tick(ts) {
+    if (state.playing) {
+      if (state.lastTimestamp !== null) {
+        const dt = ts - state.lastTimestamp;
+        state.scrollY += (state.speed / 60) * (dt / 16.667);
+
+        const maxScroll = scrollContent.scrollHeight - window.innerHeight;
+        if (state.scrollY >= maxScroll) {
+          state.scrollY = maxScroll;
+          pause();
+        }
+      }
+      state.lastTimestamp = ts;
+      applyScroll();
+    }
+    state.animId = requestAnimationFrame(tick);
+  }
+
+  function applyScroll() {
+    scrollContent.style.transform = (state.mirrored ? 'scaleX(-1) ' : '') +
+      `translateY(${-state.scrollY}px)`;
+  }
+
+  function play() {
+    state.playing = true;
+    state.lastTimestamp = null;
+    updatePlayPauseBtn();
+    startHudHide();
+  }
+
+  function pause() {
+    state.playing = false;
+    updatePlayPauseBtn();
+    showHud();
+  }
+
+  function togglePlay() {
+    state.playing ? pause() : play();
+  }
+
+  function resetScroll() {
+    state.scrollY = 0;
+    state.lastTimestamp = null;
+    applyScroll();
+  }
+
+  function adjustSpeed(delta) {
+    state.speed = Math.max(10, Math.min(300, state.speed + delta));
+    speedSlider.value = state.speed;
+    speedVal.textContent = state.speed;
+    updateSpeedDisplay();
+    flashHud();
+  }
+
+  function toggleMirror() {
+    state.mirrored = !state.mirrored;
+    scrollContent.classList.toggle('mirrored', state.mirrored);
+    applyScroll();
+    updateMirrorBtn();
+    flashHud();
+  }
+
+  // ── HUD helpers ──
+  function updatePlayPauseBtn() {
+    playPauseBtn.textContent = state.playing ? '⏸' : '▶';
+    playPauseBtn.classList.toggle('accent', state.playing);
+  }
+
+  function updateSpeedDisplay() {
+    speedDisplay.textContent = '速度 ' + state.speed;
+  }
+
+  function updateMirrorBtn() {
+    mirrorPlayBtn.classList.toggle('accent', state.mirrored);
+  }
+
+  function showHud() {
+    hud.classList.remove('hidden');
+    kbdHint.classList.remove('hidden');
+    clearTimeout(state.hudTimeout);
+  }
+
+  function startHudHide() {
+    clearTimeout(state.hudTimeout);
+    state.hudTimeout = setTimeout(() => {
+      hud.classList.add('hidden');
+      kbdHint.classList.add('hidden');
+    }, 3000);
+  }
+
+  function flashHud() {
+    showHud();
+    if (state.playing) startHudHide();
+  }
+
+  // ── Play screen controls ──
+  tapZone.addEventListener('click', () => {
+    if (hud.classList.contains('hidden')) {
+      showHud();
+      if (state.playing) startHudHide();
+    } else {
+      togglePlay();
+    }
+  });
+
+  playPauseBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+  backBtn.addEventListener('click', (e) => { e.stopPropagation(); exitPlay(); });
+  resetBtn.addEventListener('click', (e) => { e.stopPropagation(); resetScroll(); pause(); });
+  slowerBtn.addEventListener('click', (e) => { e.stopPropagation(); adjustSpeed(-10); });
+  fasterBtn.addEventListener('click', (e) => { e.stopPropagation(); adjustSpeed(10); });
+  mirrorPlayBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMirror(); });
+
+  fullscreenBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+
+  // ── Exit play ──
+  function exitPlay() {
+    pause();
+    cancelAnimationFrame(state.animId);
+    state.animId = null;
+    playScreen.classList.remove('active');
+    editScreen.style.display = 'flex';
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  // ── Keyboard shortcuts ──
+  document.addEventListener('keydown', (e) => {
+    const inPlay = playScreen.classList.contains('active');
+
+    if (!inPlay) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) enterPlay();
+      return;
+    }
+
+    switch (e.key) {
+      case ' ':
+        e.preventDefault();
+        togglePlay();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        adjustSpeed(10);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        adjustSpeed(-10);
+        break;
+      case 'r':
+      case 'R':
+        resetScroll();
+        pause();
+        break;
+      case 'm':
+      case 'M':
+        toggleMirror();
+        break;
+      case 'f':
+      case 'F':
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+        break;
+      case 'Escape':
+        exitPlay();
+        break;
+    }
+  });
+
+  // ── Start animation loop ──
+  state.animId = requestAnimationFrame(tick);
+</script>
+</body>
+</html>
