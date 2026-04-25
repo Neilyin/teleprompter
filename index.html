@@ -155,9 +155,6 @@
       will-change: transform;
     }
 
-    #scroll-content.mirrored {
-      transform: scaleX(-1);
-    }
 
     /* ── HUD ── */
     #hud {
@@ -329,6 +326,7 @@
   fontSlider.addEventListener('input', () => {
     state.fontSize = +fontSlider.value;
     fontVal.textContent = state.fontSize + 'px';
+    textarea.style.fontSize = state.fontSize + 'px';
   });
 
   speedSlider.addEventListener('input', () => {
@@ -350,20 +348,21 @@
 
     scrollContent.textContent = text;
     scrollContent.style.fontSize = state.fontSize + 'px';
-    scrollContent.classList.toggle('mirrored', state.mirrored);
 
     state.scrollY = 0;
     state.playing = false;
     state.lastTimestamp = null;
     applyScroll();
-    updatePlayPauseBtn();
     updateSpeedDisplay();
     updateMirrorBtn();
 
     editScreen.style.display = 'none';
     playScreen.classList.add('active');
 
-    showHud();
+    // restart animation loop (may have been cancelled by exitPlay)
+    if (!state.animId) state.animId = requestAnimationFrame(tick);
+
+    play();
   }
 
   // ── Scroll animation ──
@@ -423,7 +422,6 @@
 
   function toggleMirror() {
     state.mirrored = !state.mirrored;
-    scrollContent.classList.toggle('mirrored', state.mirrored);
     applyScroll();
     updateMirrorBtn();
     flashHud();
