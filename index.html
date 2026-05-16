@@ -877,14 +877,17 @@
 
   // ─── Playback control ─────────────────────────────────────
   function play() {
-    _play();
+    state.playing = true;
+    state.lastTimestamp = null;
+    updatePlayPauseBtn();
     startHudHide();
     if (sync.isConnected) sync.send({ type: 'play' });
   }
 
   function pause() {
-    _pause();
-    if (!sync.isDisplay) showHud();
+    state.playing = false;
+    updatePlayPauseBtn();
+    showHud();
     if (sync.isConnected) sync.send({ type: 'pause' });
   }
 
