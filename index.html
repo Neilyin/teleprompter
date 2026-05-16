@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="icon.svg" />
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -396,6 +397,40 @@
     .btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; }
     .btn.primary:hover { opacity: 0.9; }
+
+    /* ── QR SCANNER ── */
+    #scanner-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      z-index: 9000;
+    }
+
+    #scanner-overlay.active { display: flex; }
+
+    #scan-video {
+      width: min(90vw, 480px);
+      height: min(90vw, 480px);
+      object-fit: cover;
+      border-radius: 16px;
+      border: 2px solid var(--accent);
+    }
+
+    #scan-frame {
+      position: absolute;
+      width: min(90vw, 480px);
+      height: min(90vw, 480px);
+      border-radius: 16px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+      pointer-events: none;
+    }
+
+    #scan-hint { font-size: 15px; color: #aaa; }
   </style>
 </head>
 <body>
@@ -445,9 +480,20 @@
   <input id="join-code-input" placeholder="XXXXXX" maxlength="6" autocomplete="off" />
   <div class="row-btns">
     <button class="btn" id="join-back">← 返回</button>
+    <button class="btn" id="scan-btn">📷 掃描 QR Code</button>
     <button class="btn primary" id="join-connect-btn">連線</button>
   </div>
   <div class="status-pill" id="join-status" style="opacity:0">-</div>
+</div>
+
+<!-- ── QR SCANNER OVERLAY ── -->
+<div id="scanner-overlay">
+  <div style="position:relative;display:flex;align-items:center;justify-content:center;">
+    <video id="scan-video" autoplay playsinline muted></video>
+    <div id="scan-frame"></div>
+  </div>
+  <div id="scan-hint">對準 QR Code 自動辨識</div>
+  <button class="btn" id="scan-stop">取消</button>
 </div>
 
 <!-- ── EDIT ── -->
@@ -777,8 +823,7 @@
         updateSpeedDisplay(); break;
       case 'reset':
         state.scrollY = 0; state.lastTimestamp = null; applyScroll(); break;
-      case 'mirror':
-        state.mirrored = data.value; applyScroll(); updateMirrorBtn(); break;
+      // 'mirror' is intentionally not synced — each device is independent
       case 'scrollY': {
         const diff = data.value - state.scrollY;
         if (Math.abs(diff) > 100) { state.scrollY = data.value; applyScroll(); }
@@ -797,9 +842,9 @@
       text:     textarea.value.trim(),
       fontSize: state.fontSize,
       speed:    state.speed,
-      mirrored: state.mirrored,
       playing:  state.playing,
       scrollY:  state.scrollY,
+      // mirrored intentionally omitted — each device controls its own
     });
   }
 
@@ -923,7 +968,8 @@
     applyScroll();
     updateMirrorBtn();
     flashHud();
-    if (sync.isConnected) sync.send({ type: 'mirror', value: state.mirrored });
+    // Mirror is intentionally LOCAL-ONLY: each device controls its own view.
+    // Host shows normal text for operator; display can mirror for physical glass.
   }
 
   // ─── HUD helpers ──────────────────────────────────────────
@@ -1031,6 +1077,76 @@
     }
   });
 
+  // ─── QR Scanner ───────────────────────────────────────────
+  const scannerOverlay = document.getElementById('scanner-overlay');
+  const scanVideo      = document.getElementById('scan-video');
+  const scanBtn        = document.getElementById('scan-btn');
+  const scanStop       = document.getElementById('scan-stop');
+  let scanStream = null;
+  let scanRafId  = null;
+
+  scanBtn.addEventListener('click', startScan);
+  scanStop.addEventListener('click', stopScan);
+
+  async function startScan() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert('此裝置不支援相機存取');
+      return;
+    }
+    try {
+      scanStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 640 } }
+      });
+      scanVideo.srcObject = scanStream;
+      scannerOverlay.classList.add('active');
+      scanRafId = requestAnimationFrame(scanFrame);
+    } catch (e) {
+      alert('無法開啟相機：' + e.message);
+    }
+  }
+
+  function stopScan() {
+    if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+    cancelAnimationFrame(scanRafId);
+    scanVideo.srcObject = null;
+    scannerOverlay.classList.remove('active');
+  }
+
+  const _scanCanvas = document.createElement('canvas');
+  const _scanCtx    = _scanCanvas.getContext('2d', { willReadFrequently: true });
+
+  function scanFrame() {
+    if (!scanStream) return;
+    if (scanVideo.readyState === scanVideo.HAVE_ENOUGH_DATA) {
+      _scanCanvas.width  = scanVideo.videoWidth;
+      _scanCanvas.height = scanVideo.videoHeight;
+      _scanCtx.drawImage(scanVideo, 0, 0);
+      const img = _scanCtx.getImageData(0, 0, _scanCanvas.width, _scanCanvas.height);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code) {
+        try {
+          const u = new URL(code.data);
+          const room = u.searchParams.get('room');
+          if (room) {
+            stopScan();
+            joinCodeInput.value = room.toUpperCase();
+            connectDisplay();
+            return;
+          }
+        } catch (_) {}
+        // Try raw 6-char code
+        const raw = code.data.trim().toUpperCase();
+        if (/^[A-Z0-9]{4,8}$/.test(raw)) {
+          stopScan();
+          joinCodeInput.value = raw.substring(0, 6);
+          connectDisplay();
+          return;
+        }
+      }
+    }
+    scanRafId = requestAnimationFrame(scanFrame);
+  }
+
   // ─── PWA ──────────────────────────────────────────────────
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -1048,7 +1164,7 @@
   }
 </script>
 
-<div id="version-badge">v1.6.0</div>
+<div id="version-badge">v1.7.0</div>
 <style>
   #version-badge {
     position: fixed;
