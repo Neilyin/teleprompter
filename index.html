@@ -341,11 +341,6 @@
 
     .hud-spacer { flex: 1; }
 
-    /* Display-mode: hide controller-only elements */
-    #play-screen.display-mode .host-only { display: none !important; }
-    #play-screen.display-mode #hud { justify-content: flex-end; }
-    #play-screen.display-mode #kbd-hint { display: none; }
-
     #display-conn-badge {
       display: none;
       font-size: 13px;
@@ -355,7 +350,7 @@
       color: var(--green);
     }
 
-    #play-screen.display-mode #display-conn-badge { display: block; }
+    #play-screen.synced #display-conn-badge { display: block; }
 
     /* keyboard hint */
     #kbd-hint {
@@ -643,14 +638,16 @@
         hostStatus.textContent = '✓ 顯示端已連線';
         hostStatus.className = 'status-pill ok';
         connPill.classList.add('visible');
-        displayConnBadge.textContent = '● 顯示端已連線';
+        playScreen.classList.add('synced');
+        displayConnBadge.textContent = '● 已連線';
         sendInit();
       });
+      conn.on('data', handleSyncData);
       conn.on('close', () => {
         hostStatus.textContent = '⚠ 顯示端已斷線，等待重連…';
         hostStatus.className = 'status-pill';
         connPill.classList.remove('visible');
-        displayConnBadge.textContent = '⚠ 顯示端已斷線';
+        playScreen.classList.remove('synced');
       });
     });
   }
@@ -699,7 +696,7 @@
         enterDisplayMode();
       });
 
-      sync.conn.on('data', handleDisplayData);
+      sync.conn.on('data', handleSyncData);
 
       sync.conn.on('close', () => {
         displayConnBadge.textContent = '⚠ 已斷線';
@@ -731,15 +728,16 @@
 
   // ─── Display mode ─────────────────────────────────────────
   function enterDisplayMode() {
-    playScreen.classList.add('display-mode');
-    displayConnBadge.textContent = '● 顯示端已連線';
+    playScreen.classList.add('synced');
+    displayConnBadge.textContent = '● 已連線';
     showScreen('play');
     showHud();
     startHudHide();
     if (!state.animId) state.animId = requestAnimationFrame(tick);
   }
 
-  function handleDisplayData(data) {
+  // Apply a sync command locally WITHOUT sending back (prevents echo loops)
+  function handleSyncData(data) {
     switch (data.type) {
       case 'init':
         scrollContent.textContent = data.text;
@@ -749,18 +747,26 @@
         state.mirrored = data.mirrored;
         state.scrollY  = data.scrollY || 0;
         applyScroll();
-        if (data.playing) _play(); else _pause();
+        updateSpeedDisplay();
+        updateMirrorBtn();
+        if (data.playing) { state.playing = true; state.lastTimestamp = null; startHudHide(); }
+        else              { state.playing = false; }
+        updatePlayPauseBtn();
+        if (!state.animId) state.animId = requestAnimationFrame(tick);
         break;
       case 'play':
-        _play(); break;
+        state.playing = true; state.lastTimestamp = null;
+        updatePlayPauseBtn(); startHudHide(); break;
       case 'pause':
-        _pause(); break;
+        state.playing = false;
+        updatePlayPauseBtn(); showHud(); break;
       case 'speed':
-        state.speed = data.value; break;
+        state.speed = data.value;
+        updateSpeedDisplay(); break;
       case 'reset':
         state.scrollY = 0; state.lastTimestamp = null; applyScroll(); break;
       case 'mirror':
-        state.mirrored = data.value; applyScroll(); break;
+        state.mirrored = data.value; applyScroll(); updateMirrorBtn(); break;
       case 'scrollY': {
         const diff = data.value - state.scrollY;
         if (Math.abs(diff) > 100) { state.scrollY = data.value; applyScroll(); }
@@ -768,14 +774,9 @@
       }
       case 'fontSize':
         state.fontSize = data.value;
-        scrollContent.style.fontSize = data.value + 'px';
-        break;
+        scrollContent.style.fontSize = data.value + 'px'; break;
     }
   }
-
-  // raw play/pause without sending sync (used by display receiver)
-  function _play()  { state.playing = true;  state.lastTimestamp = null; updatePlayPauseBtn(); }
-  function _pause() { state.playing = false; updatePlayPauseBtn(); }
 
   // ─── Sync helpers ─────────────────────────────────────────
   function sendInit() {
@@ -866,13 +867,13 @@
   function play() {
     _play();
     startHudHide();
-    if (sync.isHost) sync.send({ type: 'play' });
+    if (sync.isConnected) sync.send({ type: 'play' });
   }
 
   function pause() {
     _pause();
     if (!sync.isDisplay) showHud();
-    if (sync.isHost) sync.send({ type: 'pause' });
+    if (sync.isConnected) sync.send({ type: 'pause' });
   }
 
   function togglePlay() { state.playing ? pause() : play(); }
@@ -881,7 +882,7 @@
     state.scrollY = 0;
     state.lastTimestamp = null;
     applyScroll();
-    if (sync.isHost) sync.send({ type: 'reset' });
+    if (sync.isConnected) sync.send({ type: 'reset' });
   }
 
   function nudgeScroll(dir) {
@@ -890,7 +891,7 @@
     state.lastTimestamp = null;
     applyScroll();
     flashHud();
-    if (sync.isHost) sync.send({ type: 'scrollY', value: state.scrollY });
+    if (sync.isConnected) sync.send({ type: 'scrollY', value: state.scrollY });
   }
 
   function adjustSpeed(delta) {
@@ -899,7 +900,7 @@
     speedVal.textContent = state.speed;
     updateSpeedDisplay();
     flashHud();
-    if (sync.isHost) sync.send({ type: 'speed', value: state.speed });
+    if (sync.isConnected) sync.send({ type: 'speed', value: state.speed });
   }
 
   function toggleMirror() {
@@ -907,7 +908,7 @@
     applyScroll();
     updateMirrorBtn();
     flashHud();
-    if (sync.isHost) sync.send({ type: 'mirror', value: state.mirrored });
+    if (sync.isConnected) sync.send({ type: 'mirror', value: state.mirrored });
   }
 
   // ─── HUD helpers ──────────────────────────────────────────
@@ -946,7 +947,6 @@
 
   // ─── Play screen events ───────────────────────────────────
   tapZone.addEventListener('click', () => {
-    if (sync.isDisplay) { flashHud(); return; }
     if (hud.classList.contains('hidden')) { flashHud(); }
     else { togglePlay(); }
   });
@@ -964,7 +964,7 @@
     speedSlider.value = state.speed;
     speedVal.textContent = state.speed;
     speedDisplay.textContent = '速度 ' + state.speed;
-    if (sync.isHost) sync.send({ type: 'speed', value: state.speed });
+    if (sync.isConnected) sync.send({ type: 'speed', value: state.speed });
   });
 
   fullscreenBtn.addEventListener('click', e => {
@@ -979,13 +979,19 @@
     pause();
     cancelAnimationFrame(state.animId);
     state.animId = null;
+    playScreen.classList.remove('synced');
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    showScreen(sync.isHost ? 'edit' : 'welcome');
+    if (sync.isDisplay) {
+      if (sync.peer) { sync.peer.destroy(); sync.peer = null; sync.conn = null; }
+      sync.mode = 'solo';
+      showScreen('welcome');
+    } else {
+      showScreen(sync.isHost ? 'edit' : 'welcome');
+    }
   }
 
   // ─── Keyboard shortcuts ───────────────────────────────────
   document.addEventListener('keydown', e => {
-    if (sync.isDisplay) return;
 
     const inPlay = playScreen.classList.contains('active');
     if (!inPlay) {
