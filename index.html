@@ -10,6 +10,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <meta name="apple-mobile-web-app-title" content="提詞機" />
   <link rel="apple-touch-icon" href="icon.svg" />
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -20,6 +22,8 @@
       --panel-bg: #111;
       --border: #333;
       --radius: 12px;
+      --green: #4caf50;
+      --red: #f44336;
     }
 
     body {
@@ -31,21 +35,160 @@
       user-select: none;
     }
 
-    /* ── EDIT MODE ── */
-    #edit-screen {
+    /* ── SCREEN SYSTEM ── */
+    .screen { display: none; flex-direction: column; }
+    .screen.active { display: flex; }
+
+    /* ── WELCOME ── */
+    #welcome-screen {
+      align-items: center;
+      justify-content: center;
+      height: 100dvh;
+      gap: 40px;
+    }
+
+    .welcome-title {
+      font-size: 38px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: 0.05em;
+    }
+
+    .mode-options {
       display: flex;
-      flex-direction: column;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .mode-card {
+      background: var(--panel-bg);
+      border: 2px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+      min-width: 150px;
+    }
+
+    .mode-card:hover  { border-color: var(--accent); transform: translateY(-2px); }
+    .mode-card:active { transform: translateY(0); opacity: 0.75; }
+    .mode-card .icon  { font-size: 44px; margin-bottom: 12px; }
+    .mode-card .label { font-size: 17px; font-weight: 700; }
+    .mode-card .desc  { font-size: 12px; color: #555; margin-top: 6px; }
+
+    /* ── HOST SETUP ── */
+    #host-screen {
+      align-items: center;
+      justify-content: center;
+      height: 100dvh;
+      gap: 20px;
+      text-align: center;
+      padding: 32px;
+    }
+
+    #host-screen h2 { font-size: 18px; color: #aaa; }
+
+    .room-code-display {
+      font-size: 52px;
+      font-weight: 900;
+      letter-spacing: 0.2em;
+      color: var(--accent);
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 32px;
+    }
+
+    #qr-canvas {
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+      display: block;
+    }
+
+    .status-pill {
+      font-size: 13px;
+      padding: 5px 16px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: #666;
+      transition: all 0.2s;
+    }
+    .status-pill.ok  { border-color: var(--green); color: var(--green); }
+    .status-pill.err { border-color: var(--red);   color: var(--red);   }
+
+    .row-btns { display: flex; gap: 12px; }
+
+    /* ── JOIN ── */
+    #join-screen {
+      align-items: center;
+      justify-content: center;
+      height: 100dvh;
+      gap: 22px;
+      padding: 32px;
+    }
+
+    #join-screen h2 { font-size: 18px; color: #aaa; }
+
+    #join-code-input {
+      background: var(--panel-bg);
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--fg);
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      padding: 12px 24px;
+      text-align: center;
+      text-transform: uppercase;
+      outline: none;
+      width: 300px;
+      transition: border-color 0.15s;
+    }
+
+    #join-code-input:focus { border-color: var(--accent); }
+
+    /* ── EDIT SCREEN ── */
+    #edit-screen {
       height: 100dvh;
       padding: 24px;
       gap: 20px;
     }
 
+    .edit-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     h1 {
       font-size: 22px;
       font-weight: 700;
-      letter-spacing: 0.02em;
       color: var(--accent);
     }
+
+    .conn-pill {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--green);
+      color: var(--green);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .conn-pill.visible { opacity: 1; }
+
+    .back-link {
+      margin-left: auto;
+      color: #444;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .back-link:hover { color: #aaa; }
 
     #textarea {
       flex: 1;
@@ -61,7 +204,7 @@
       font-family: inherit;
     }
 
-    #textarea::placeholder { color: #444; }
+    #textarea::placeholder { color: #333; }
 
     .settings-row {
       display: flex;
@@ -80,11 +223,7 @@
       padding: 10px 16px;
     }
 
-    .setting label {
-      font-size: 14px;
-      color: #aaa;
-      white-space: nowrap;
-    }
+    .setting label  { font-size: 14px; color: #aaa; white-space: nowrap; }
 
     .setting input[type="range"] {
       width: 120px;
@@ -95,8 +234,7 @@
     .setting .val {
       font-size: 14px;
       font-weight: 600;
-      color: var(--fg);
-      min-width: 32px;
+      min-width: 36px;
       text-align: right;
     }
 
@@ -111,10 +249,7 @@
       transition: all 0.15s;
     }
 
-    .toggle-btn.active {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
+    .toggle-btn.active { border-color: var(--accent); color: var(--accent); }
 
     #start-btn {
       background: var(--accent);
@@ -131,29 +266,23 @@
 
     #start-btn:active { opacity: 0.8; }
 
-    /* ── PLAY MODE ── */
+    /* ── PLAY SCREEN ── */
     #play-screen {
-      display: none;
       position: fixed;
       inset: 0;
       background: var(--bg);
       overflow: hidden;
-      flex-direction: column;
     }
 
-    #play-screen.active { display: flex; }
-
     #scroll-container {
-      flex: 1;
+      position: absolute;
+      inset: 0;
       overflow: hidden;
-      position: relative;
     }
 
     #scroll-content {
       position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
+      top: 0; left: 0; right: 0;
       padding: 60px 64px 80vh 64px;
       white-space: pre-wrap;
       line-height: 1.75;
@@ -161,18 +290,15 @@
       will-change: transform;
     }
 
-
     /* ── HUD ── */
     #hud {
       position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
+      bottom: 0; left: 0; right: 0;
       background: linear-gradient(transparent, rgba(0,0,0,0.92));
       padding: 16px 32px 20px;
       display: flex;
       align-items: center;
-      gap: 20px;
+      gap: 16px;
       transition: opacity 0.4s;
       z-index: 10;
     }
@@ -196,7 +322,6 @@
     }
 
     .hud-btn:active { background: rgba(255,255,255,0.25); }
-
     .hud-btn.accent { color: var(--accent); border-color: var(--accent); }
 
     .hud-speed {
@@ -212,22 +337,33 @@
       cursor: pointer;
     }
 
-    #speed-display {
-      font-size: 11px;
-      color: #aaa;
-      white-space: nowrap;
-    }
+    #speed-display { font-size: 11px; color: #aaa; }
 
     .hud-spacer { flex: 1; }
+
+    /* Display-mode: hide controller-only elements */
+    #play-screen.display-mode .host-only { display: none !important; }
+    #play-screen.display-mode #hud { justify-content: flex-end; }
+    #play-screen.display-mode #kbd-hint { display: none; }
+
+    #display-conn-badge {
+      display: none;
+      font-size: 13px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--green);
+      color: var(--green);
+    }
+
+    #play-screen.display-mode #display-conn-badge { display: block; }
 
     /* keyboard hint */
     #kbd-hint {
       position: fixed;
-      top: 16px;
-      right: 20px;
+      top: 16px; right: 20px;
       font-size: 12px;
-      color: #333;
-      line-height: 1.8;
+      color: #2a2a2a;
+      line-height: 1.9;
       pointer-events: none;
       transition: opacity 0.4s;
     }
@@ -242,13 +378,86 @@
       z-index: 5;
       cursor: pointer;
     }
+
+    /* shared button */
+    .btn {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--fg);
+      font-size: 15px;
+      font-weight: 600;
+      padding: 11px 22px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn:hover   { border-color: #555; }
+    .btn:active  { opacity: 0.8; }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; }
+    .btn.primary:hover { opacity: 0.9; }
   </style>
 </head>
 <body>
 
-<!-- ── EDIT SCREEN ── -->
-<div id="edit-screen">
-  <h1>提詞機</h1>
+<!-- ── WELCOME ── -->
+<div id="welcome-screen" class="screen">
+  <div class="welcome-title">提詞機</div>
+  <div class="mode-options">
+    <div class="mode-card" id="solo-card">
+      <div class="icon">📄</div>
+      <div class="label">單機使用</div>
+      <div class="desc">本機直接播放</div>
+    </div>
+    <div class="mode-card" id="host-card">
+      <div class="icon">💻</div>
+      <div class="label">控制端</div>
+      <div class="desc">電腦控制 iPad 顯示</div>
+    </div>
+    <div class="mode-card" id="display-card">
+      <div class="icon">📺</div>
+      <div class="label">顯示端</div>
+      <div class="desc">iPad 接收顯示</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── HOST SETUP ── -->
+<div id="host-screen" class="screen">
+  <h2>控制端</h2>
+  <div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px;">顯示端輸入此代碼</div>
+    <div class="room-code-display" id="room-code-display">------</div>
+  </div>
+  <canvas id="qr-canvas" width="200" height="200"></canvas>
+  <div style="font-size:12px;color:#444;">或讓 iPad 掃描 QR Code</div>
+  <div class="status-pill" id="host-status">⏳ 等待顯示端連線…</div>
+  <div class="row-btns">
+    <button class="btn" id="host-back">← 返回</button>
+    <button class="btn primary" id="host-continue">繼續編輯 →</button>
+  </div>
+</div>
+
+<!-- ── JOIN ── -->
+<div id="join-screen" class="screen">
+  <h2>顯示端</h2>
+  <div style="font-size:14px;color:#555;">輸入控制端的房間代碼</div>
+  <input id="join-code-input" placeholder="XXXXXX" maxlength="6" autocomplete="off" />
+  <div class="row-btns">
+    <button class="btn" id="join-back">← 返回</button>
+    <button class="btn primary" id="join-connect-btn">連線</button>
+  </div>
+  <div class="status-pill" id="join-status" style="opacity:0">-</div>
+</div>
+
+<!-- ── EDIT ── -->
+<div id="edit-screen" class="screen">
+  <div class="edit-header">
+    <h1>提詞機</h1>
+    <span class="conn-pill" id="conn-pill">● 顯示端已連線</span>
+    <span class="back-link" id="edit-back">← 離開</span>
+  </div>
 
   <textarea id="textarea" placeholder="在此貼上稿件…"></textarea>
 
@@ -258,13 +467,11 @@
       <input type="range" id="font-size-slider" min="20" max="200" value="36" step="2" />
       <span class="val" id="font-size-val">36px</span>
     </div>
-
     <div class="setting">
       <label>滾動速度</label>
       <input type="range" id="speed-slider" min="10" max="300" value="80" step="5" />
       <span class="val" id="speed-val">80</span>
     </div>
-
     <button class="toggle-btn" id="mirror-btn">↔ 鏡像</button>
   </div>
 
@@ -273,27 +480,27 @@
   </div>
 </div>
 
-<!-- ── PLAY SCREEN ── -->
-<div id="play-screen">
+<!-- ── PLAY ── -->
+<div id="play-screen" class="screen">
   <div id="scroll-container">
     <div id="scroll-content"></div>
   </div>
 
-  <!-- transparent tap area -->
   <div id="tap-zone"></div>
 
   <div id="hud">
-    <button class="hud-btn" id="back-btn" title="返回編輯 (Esc)">✕</button>
-    <button class="hud-btn" id="reset-btn" title="回到開頭 (R)">⏮</button>
-    <button class="hud-btn" id="play-pause-btn" title="播放/暫停 (Space)">▶</button>
-    <button class="hud-btn" id="slower-btn" title="減速 (←)">－</button>
-    <div class="hud-speed">
+    <button class="hud-btn host-only" id="back-btn" title="返回 (Esc)">✕</button>
+    <button class="hud-btn host-only" id="reset-btn" title="回開頭 (R)">⏮</button>
+    <button class="hud-btn host-only" id="play-pause-btn" title="播放/暫停 (Space)">▶</button>
+    <button class="hud-btn host-only" id="slower-btn" title="減速 (←)">－</button>
+    <div class="hud-speed host-only">
       <input type="range" id="hud-speed-slider" min="10" max="300" value="80" step="5" />
       <span id="speed-display">速度 80</span>
     </div>
-    <button class="hud-btn" id="faster-btn" title="加速 (→)">＋</button>
-    <div class="hud-spacer"></div>
-    <button class="hud-btn" id="mirror-play-btn" title="鏡像翻轉 (M)">↔</button>
+    <button class="hud-btn host-only" id="faster-btn" title="加速 (→)">＋</button>
+    <div class="hud-spacer host-only"></div>
+    <span id="display-conn-badge">● 顯示端已連線</span>
+    <button class="hud-btn host-only" id="mirror-play-btn" title="鏡像 (M)">↔</button>
     <button class="hud-btn" id="fullscreen-btn" title="全螢幕 (F)">⛶</button>
   </div>
 
@@ -309,7 +516,14 @@
 </div>
 
 <script>
-  // ── State ──
+  // ─── Screen manager ───────────────────────────────────────
+  function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => {
+      s.classList.toggle('active', s.id === name + '-screen');
+    });
+  }
+
+  // ─── State ────────────────────────────────────────────────
   const state = {
     fontSize: 36,
     speed: 80,
@@ -321,32 +535,262 @@
     hudTimeout: null,
   };
 
-  // ── Elements ──
-  const editScreen   = document.getElementById('edit-screen');
-  const playScreen   = document.getElementById('play-screen');
-  const textarea     = document.getElementById('textarea');
-  const fontSlider   = document.getElementById('font-size-slider');
-  const fontVal      = document.getElementById('font-size-val');
-  const speedSlider  = document.getElementById('speed-slider');
-  const speedVal     = document.getElementById('speed-val');
-  const mirrorBtn    = document.getElementById('mirror-btn');
-  const startBtn     = document.getElementById('start-btn');
+  // ─── Sync ─────────────────────────────────────────────────
+  const sync = {
+    mode: 'solo',   // 'solo' | 'host' | 'display'
+    peer: null,
+    conn: null,
+    get isHost()      { return this.mode === 'host'; },
+    get isDisplay()   { return this.mode === 'display'; },
+    get isConnected() { return !!(this.conn && this.conn.open); },
+    send(data) {
+      if (this.isConnected) try { this.conn.send(data); } catch(_) {}
+    },
+  };
 
-  const scrollContent  = document.getElementById('scroll-content');
-  const playPauseBtn   = document.getElementById('play-pause-btn');
-  const backBtn        = document.getElementById('back-btn');
-  const resetBtn       = document.getElementById('reset-btn');
-  const slowerBtn      = document.getElementById('slower-btn');
-  const fasterBtn      = document.getElementById('faster-btn');
-  const speedDisplay   = document.getElementById('speed-display');
-  const mirrorPlayBtn  = document.getElementById('mirror-play-btn');
-  const fullscreenBtn  = document.getElementById('fullscreen-btn');
-  const hudSpeedSlider = document.getElementById('hud-speed-slider');
-  const hud            = document.getElementById('hud');
-  const kbdHint        = document.getElementById('kbd-hint');
-  const tapZone        = document.getElementById('tap-zone');
+  // ─── Elements ─────────────────────────────────────────────
+  const soloCard        = document.getElementById('solo-card');
+  const hostCard        = document.getElementById('host-card');
+  const displayCard     = document.getElementById('display-card');
 
-  // ── Edit controls ──
+  const roomCodeDisplay = document.getElementById('room-code-display');
+  const qrCanvas        = document.getElementById('qr-canvas');
+  const hostStatus      = document.getElementById('host-status');
+  const hostBack        = document.getElementById('host-back');
+  const hostContinue    = document.getElementById('host-continue');
+
+  const joinCodeInput   = document.getElementById('join-code-input');
+  const joinBack        = document.getElementById('join-back');
+  const joinConnectBtn  = document.getElementById('join-connect-btn');
+  const joinStatus      = document.getElementById('join-status');
+
+  const textarea        = document.getElementById('textarea');
+  const fontSlider      = document.getElementById('font-size-slider');
+  const fontVal         = document.getElementById('font-size-val');
+  const speedSlider     = document.getElementById('speed-slider');
+  const speedVal        = document.getElementById('speed-val');
+  const mirrorBtn       = document.getElementById('mirror-btn');
+  const startBtn        = document.getElementById('start-btn');
+  const connPill        = document.getElementById('conn-pill');
+  const editBack        = document.getElementById('edit-back');
+
+  const playScreen      = document.getElementById('play-screen');
+  const scrollContent   = document.getElementById('scroll-content');
+  const playPauseBtn    = document.getElementById('play-pause-btn');
+  const backBtn         = document.getElementById('back-btn');
+  const resetBtn        = document.getElementById('reset-btn');
+  const slowerBtn       = document.getElementById('slower-btn');
+  const fasterBtn       = document.getElementById('faster-btn');
+  const hudSpeedSlider  = document.getElementById('hud-speed-slider');
+  const speedDisplay    = document.getElementById('speed-display');
+  const mirrorPlayBtn   = document.getElementById('mirror-play-btn');
+  const fullscreenBtn   = document.getElementById('fullscreen-btn');
+  const displayConnBadge = document.getElementById('display-conn-badge');
+  const hud             = document.getElementById('hud');
+  const kbdHint         = document.getElementById('kbd-hint');
+  const tapZone         = document.getElementById('tap-zone');
+
+  // ─── Welcome ──────────────────────────────────────────────
+  soloCard.addEventListener('click', () => {
+    sync.mode = 'solo';
+    showScreen('edit');
+  });
+
+  hostCard.addEventListener('click', () => {
+    sync.mode = 'host';
+    startHost();
+  });
+
+  displayCard.addEventListener('click', () => {
+    sync.mode = 'display';
+    showScreen('join');
+    joinCodeInput.focus();
+  });
+
+  // ─── Host ─────────────────────────────────────────────────
+  function randomCode() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+
+  function startHost() {
+    const code = randomCode();
+    roomCodeDisplay.textContent = code;
+    hostStatus.textContent = '⏳ 等待顯示端連線…';
+    hostStatus.className = 'status-pill';
+    showScreen('host');
+
+    if (sync.peer) { sync.peer.destroy(); }
+    sync.peer = new Peer('tp-' + code);
+
+    sync.peer.on('open', () => {
+      const url = location.origin + location.pathname + '?room=' + code;
+      QRCode.toCanvas(qrCanvas, url, { width: 200, color: { dark: '#000000', light: '#ffffff' } });
+    });
+
+    sync.peer.on('error', err => {
+      if (err.type === 'unavailable-id') {
+        sync.peer.destroy();
+        startHost(); // retry with new code
+      } else {
+        hostStatus.textContent = '❌ 錯誤：' + err.type;
+        hostStatus.className = 'status-pill err';
+      }
+    });
+
+    sync.peer.on('connection', conn => {
+      sync.conn = conn;
+      conn.on('open', () => {
+        hostStatus.textContent = '✓ 顯示端已連線';
+        hostStatus.className = 'status-pill ok';
+        connPill.classList.add('visible');
+        displayConnBadge.textContent = '● 顯示端已連線';
+        sendInit();
+      });
+      conn.on('close', () => {
+        hostStatus.textContent = '⚠ 顯示端已斷線，等待重連…';
+        hostStatus.className = 'status-pill';
+        connPill.classList.remove('visible');
+        displayConnBadge.textContent = '⚠ 顯示端已斷線';
+      });
+    });
+  }
+
+  hostBack.addEventListener('click', () => {
+    if (sync.peer) { sync.peer.destroy(); sync.peer = null; sync.conn = null; }
+    sync.mode = 'solo';
+    showScreen('welcome');
+  });
+
+  hostContinue.addEventListener('click', () => showScreen('edit'));
+
+  // ─── Join (display) ───────────────────────────────────────
+  joinCodeInput.addEventListener('input', () => {
+    joinCodeInput.value = joinCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  });
+
+  joinConnectBtn.addEventListener('click', connectDisplay);
+  joinCodeInput.addEventListener('keydown', e => { if (e.key === 'Enter') connectDisplay(); });
+
+  function connectDisplay() {
+    const code = joinCodeInput.value.trim();
+    if (code.length < 4) return;
+
+    joinStatus.style.opacity = '1';
+    joinStatus.className = 'status-pill';
+    joinStatus.textContent = '⏳ 連線中…';
+    joinConnectBtn.disabled = true;
+
+    if (sync.peer) { sync.peer.destroy(); }
+    sync.peer = new Peer();
+
+    const timeout = setTimeout(() => {
+      if (!sync.isConnected) {
+        setJoinError('❌ 連線逾時，請確認代碼');
+      }
+    }, 12000);
+
+    sync.peer.on('open', () => {
+      sync.conn = sync.peer.connect('tp-' + code, { reliable: true });
+
+      sync.conn.on('open', () => {
+        clearTimeout(timeout);
+        joinStatus.textContent = '✓ 已連線！';
+        joinStatus.className = 'status-pill ok';
+        enterDisplayMode();
+      });
+
+      sync.conn.on('data', handleDisplayData);
+
+      sync.conn.on('close', () => {
+        displayConnBadge.textContent = '⚠ 已斷線';
+        displayConnBadge.style.borderColor = 'var(--red)';
+        displayConnBadge.style.color = 'var(--red)';
+      });
+
+      sync.conn.on('error', () => setJoinError('❌ 連線失敗'));
+    });
+
+    sync.peer.on('error', () => {
+      clearTimeout(timeout);
+      setJoinError('❌ 無法連線');
+    });
+  }
+
+  function setJoinError(msg) {
+    joinStatus.textContent = msg;
+    joinStatus.className = 'status-pill err';
+    joinConnectBtn.disabled = false;
+    if (sync.peer && !sync.isConnected) { sync.peer.destroy(); sync.peer = null; }
+  }
+
+  joinBack.addEventListener('click', () => {
+    if (sync.peer) { sync.peer.destroy(); sync.peer = null; }
+    sync.mode = 'solo';
+    showScreen('welcome');
+  });
+
+  // ─── Display mode ─────────────────────────────────────────
+  function enterDisplayMode() {
+    playScreen.classList.add('display-mode');
+    displayConnBadge.textContent = '● 顯示端已連線';
+    showScreen('play');
+    showHud();
+    startHudHide();
+    if (!state.animId) state.animId = requestAnimationFrame(tick);
+  }
+
+  function handleDisplayData(data) {
+    switch (data.type) {
+      case 'init':
+        scrollContent.textContent = data.text;
+        scrollContent.style.fontSize = data.fontSize + 'px';
+        state.fontSize = data.fontSize;
+        state.speed    = data.speed;
+        state.mirrored = data.mirrored;
+        state.scrollY  = data.scrollY || 0;
+        applyScroll();
+        if (data.playing) _play(); else _pause();
+        break;
+      case 'play':
+        _play(); break;
+      case 'pause':
+        _pause(); break;
+      case 'speed':
+        state.speed = data.value; break;
+      case 'reset':
+        state.scrollY = 0; state.lastTimestamp = null; applyScroll(); break;
+      case 'mirror':
+        state.mirrored = data.value; applyScroll(); break;
+      case 'scrollY': {
+        const diff = data.value - state.scrollY;
+        if (Math.abs(diff) > 100) { state.scrollY = data.value; applyScroll(); }
+        break;
+      }
+      case 'fontSize':
+        state.fontSize = data.value;
+        scrollContent.style.fontSize = data.value + 'px';
+        break;
+    }
+  }
+
+  // raw play/pause without sending sync (used by display receiver)
+  function _play()  { state.playing = true;  state.lastTimestamp = null; updatePlayPauseBtn(); }
+  function _pause() { state.playing = false; updatePlayPauseBtn(); }
+
+  // ─── Sync helpers ─────────────────────────────────────────
+  function sendInit() {
+    sync.send({
+      type:     'init',
+      text:     textarea.value.trim(),
+      fontSize: state.fontSize,
+      speed:    state.speed,
+      mirrored: state.mirrored,
+      playing:  state.playing,
+      scrollY:  state.scrollY,
+    });
+  }
+
+  // ─── Edit controls ────────────────────────────────────────
   fontSlider.addEventListener('input', () => {
     state.fontSize = +fontSlider.value;
     fontVal.textContent = state.fontSize + 'px';
@@ -365,83 +809,88 @@
 
   startBtn.addEventListener('click', enterPlay);
 
-  // ── Enter play mode ──
+  editBack.addEventListener('click', () => {
+    if (sync.isHost) showScreen('host');
+    else { sync.mode = 'solo'; showScreen('welcome'); }
+  });
+
+  // ─── Enter play mode ──────────────────────────────────────
   function enterPlay() {
     const text = textarea.value.trim();
     if (!text) return;
 
     scrollContent.textContent = text;
     scrollContent.style.fontSize = state.fontSize + 'px';
-
     state.scrollY = 0;
     state.playing = false;
     state.lastTimestamp = null;
     applyScroll();
     updateSpeedDisplay();
     updateMirrorBtn();
+    showScreen('play');
 
-    editScreen.style.display = 'none';
-    playScreen.classList.add('active');
-
-    // restart animation loop (may have been cancelled by exitPlay)
     if (!state.animId) state.animId = requestAnimationFrame(tick);
+    if (sync.isHost) sendInit();
 
     play();
   }
 
-  // ── Scroll animation ──
+  // ─── Scroll animation ─────────────────────────────────────
+  let lastSyncTs = 0;
+
   function tick(ts) {
     if (state.playing) {
       if (state.lastTimestamp !== null) {
         const dt = ts - state.lastTimestamp;
         state.scrollY += (state.speed / 60) * (dt / 16.667);
-
-        const maxScroll = scrollContent.scrollHeight - window.innerHeight;
-        if (state.scrollY >= maxScroll) {
-          state.scrollY = maxScroll;
-          pause();
-        }
+        const max = scrollContent.scrollHeight - window.innerHeight;
+        if (state.scrollY >= max) { state.scrollY = max; pause(); }
       }
       state.lastTimestamp = ts;
       applyScroll();
+
+      if (sync.isHost && ts - lastSyncTs > 1500) {
+        lastSyncTs = ts;
+        sync.send({ type: 'scrollY', value: state.scrollY });
+      }
     }
     state.animId = requestAnimationFrame(tick);
   }
 
   function applyScroll() {
-    scrollContent.style.transform = (state.mirrored ? 'scaleX(-1) ' : '') +
-      `translateY(${-state.scrollY}px)`;
+    scrollContent.style.transform =
+      (state.mirrored ? 'scaleX(-1) ' : '') + `translateY(${-state.scrollY}px)`;
   }
 
+  // ─── Playback control ─────────────────────────────────────
   function play() {
-    state.playing = true;
-    state.lastTimestamp = null;
-    updatePlayPauseBtn();
+    _play();
     startHudHide();
+    if (sync.isHost) sync.send({ type: 'play' });
   }
 
   function pause() {
-    state.playing = false;
-    updatePlayPauseBtn();
-    showHud();
+    _pause();
+    if (!sync.isDisplay) showHud();
+    if (sync.isHost) sync.send({ type: 'pause' });
   }
 
-  function togglePlay() {
-    state.playing ? pause() : play();
-  }
+  function togglePlay() { state.playing ? pause() : play(); }
 
   function resetScroll() {
     state.scrollY = 0;
     state.lastTimestamp = null;
     applyScroll();
+    if (sync.isHost) sync.send({ type: 'reset' });
   }
 
   function nudgeScroll(dir) {
-    const lineHeight = state.fontSize * 1.75;
-    state.scrollY = Math.max(0, state.scrollY + dir * lineHeight);
+    const lh = state.fontSize * 1.75;
+    state.scrollY = Math.max(0, state.scrollY + dir * lh);
     state.lastTimestamp = null;
     applyScroll();
     flashHud();
+    if (sync.isHost) sync.send({ type: 'scrollY', value: state.scrollY });
   }
 
   function adjustSpeed(delta) {
@@ -450,6 +899,7 @@
     speedVal.textContent = state.speed;
     updateSpeedDisplay();
     flashHud();
+    if (sync.isHost) sync.send({ type: 'speed', value: state.speed });
   }
 
   function toggleMirror() {
@@ -457,9 +907,10 @@
     applyScroll();
     updateMirrorBtn();
     flashHud();
+    if (sync.isHost) sync.send({ type: 'mirror', value: state.mirrored });
   }
 
-  // ── HUD helpers ──
+  // ─── HUD helpers ──────────────────────────────────────────
   function updatePlayPauseBtn() {
     playPauseBtn.textContent = state.playing ? '⏸' : '▶';
     playPauseBtn.classList.toggle('accent', state.playing);
@@ -493,109 +944,86 @@
     if (state.playing) startHudHide();
   }
 
-  // ── Play screen controls ──
+  // ─── Play screen events ───────────────────────────────────
   tapZone.addEventListener('click', () => {
-    if (hud.classList.contains('hidden')) {
-      showHud();
-      if (state.playing) startHudHide();
-    } else {
-      togglePlay();
-    }
+    if (sync.isDisplay) { flashHud(); return; }
+    if (hud.classList.contains('hidden')) { flashHud(); }
+    else { togglePlay(); }
   });
 
-  playPauseBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
-  backBtn.addEventListener('click', (e) => { e.stopPropagation(); exitPlay(); });
-  resetBtn.addEventListener('click', (e) => { e.stopPropagation(); resetScroll(); pause(); });
-  slowerBtn.addEventListener('click', (e) => { e.stopPropagation(); adjustSpeed(-10); });
-  fasterBtn.addEventListener('click', (e) => { e.stopPropagation(); adjustSpeed(10); });
-  mirrorPlayBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMirror(); });
+  playPauseBtn.addEventListener('click',  e => { e.stopPropagation(); togglePlay(); });
+  backBtn.addEventListener('click',       e => { e.stopPropagation(); exitPlay(); });
+  resetBtn.addEventListener('click',      e => { e.stopPropagation(); resetScroll(); pause(); });
+  slowerBtn.addEventListener('click',     e => { e.stopPropagation(); adjustSpeed(-10); });
+  fasterBtn.addEventListener('click',     e => { e.stopPropagation(); adjustSpeed(10); });
+  mirrorPlayBtn.addEventListener('click', e => { e.stopPropagation(); toggleMirror(); });
 
-  hudSpeedSlider.addEventListener('input', (e) => {
+  hudSpeedSlider.addEventListener('input', e => {
     e.stopPropagation();
     state.speed = +hudSpeedSlider.value;
     speedSlider.value = state.speed;
     speedVal.textContent = state.speed;
     speedDisplay.textContent = '速度 ' + state.speed;
+    if (sync.isHost) sync.send({ type: 'speed', value: state.speed });
   });
 
-  fullscreenBtn.addEventListener('click', (e) => {
+  fullscreenBtn.addEventListener('click', e => {
     e.stopPropagation();
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
-    }
+    document.fullscreenElement
+      ? document.exitFullscreen().catch(() => {})
+      : document.documentElement.requestFullscreen().catch(() => {});
   });
 
-  // ── Exit play ──
+  // ─── Exit play ────────────────────────────────────────────
   function exitPlay() {
     pause();
     cancelAnimationFrame(state.animId);
     state.animId = null;
-    playScreen.classList.remove('active');
-    editScreen.style.display = 'flex';
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    showScreen(sync.isHost ? 'edit' : 'welcome');
   }
 
-  // ── Keyboard shortcuts ──
-  document.addEventListener('keydown', (e) => {
-    const inPlay = playScreen.classList.contains('active');
+  // ─── Keyboard shortcuts ───────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (sync.isDisplay) return;
 
+    const inPlay = playScreen.classList.contains('active');
     if (!inPlay) {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) enterPlay();
       return;
     }
 
     switch (e.key) {
-      case ' ':
-        e.preventDefault();
-        togglePlay();
+      case ' ':          e.preventDefault(); togglePlay(); break;
+      case 'ArrowRight': e.preventDefault(); adjustSpeed(10); break;
+      case 'ArrowLeft':  e.preventDefault(); adjustSpeed(-10); break;
+      case 'ArrowUp':    e.preventDefault(); nudgeScroll(-1); break;
+      case 'ArrowDown':  e.preventDefault(); nudgeScroll(1); break;
+      case 'r': case 'R': resetScroll(); pause(); break;
+      case 'm': case 'M': toggleMirror(); break;
+      case 'f': case 'F':
+        document.fullscreenElement
+          ? document.exitFullscreen().catch(() => {})
+          : document.documentElement.requestFullscreen().catch(() => {});
         break;
-      case 'ArrowRight':
-        e.preventDefault();
-        adjustSpeed(10);
-        break;
-      case 'ArrowLeft':
-        e.preventDefault();
-        adjustSpeed(-10);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        nudgeScroll(-1);
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        nudgeScroll(1);
-        break;
-      case 'r':
-      case 'R':
-        resetScroll();
-        pause();
-        break;
-      case 'm':
-      case 'M':
-        toggleMirror();
-        break;
-      case 'f':
-      case 'F':
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(() => {});
-        } else {
-          document.exitFullscreen().catch(() => {});
-        }
-        break;
-      case 'Escape':
-        exitPlay();
-        break;
+      case 'Escape': exitPlay(); break;
     }
   });
 
-  // ── Start animation loop ──
-  state.animId = requestAnimationFrame(tick);
-
-  // ── PWA service worker ──
+  // ─── PWA ──────────────────────────────────────────────────
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+
+  // ─── Boot ─────────────────────────────────────────────────
+  const urlRoom = new URLSearchParams(location.search).get('room');
+  if (urlRoom) {
+    sync.mode = 'display';
+    joinCodeInput.value = urlRoom.toUpperCase();
+    showScreen('join');
+    connectDisplay();
+  } else {
+    showScreen('welcome');
   }
 </script>
 </body>
